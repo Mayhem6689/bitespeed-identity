@@ -1,137 +1,213 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 
-export default function IdentityReconciliationApp() {
+const products = [
+  {
+    id: 1,
+    name: "Wireless Headphones",
+    price: 49.99,
+    image: "https://via.placeholder.com/150?text=Headphones",
+  },
+  {
+    id: 2,
+    name: "Smartphone",
+    price: 299.99,
+    image: "https://via.placeholder.com/150?text=Smartphone",
+  },
+  {
+    id: 3,
+    name: "Smart Watch",
+    price: 99.99,
+    image: "https://via.placeholder.com/150?text=Smart+Watch",
+  },
+];
+
+export default function App() {
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [identity, setIdentity] = useState(null);
-  const [contacts, setContacts] = useState([]);
-  const [selectedContact, setSelectedContact] = useState(null);
-  const [purchases, setPurchases] = useState([]);
+  const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  async function handleIdentify(e) {
-    e.preventDefault();
+  async function identifyUser() {
     setLoading(true);
-
-    const res = await fetch("http://localhost:3000/identify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, phoneNumber: phone }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      alert(data.error || "Failed to identify");
+    setError("");
+    try {
+      const res = await fetch("http://localhost:3000/identify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, phoneNumber }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Identification failed");
+      setIdentity(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setIdentity(data);
-    setContacts([...data.emails.map((e) => ({ type: "email", value: e })), ...data.phoneNumbers.map((p) => ({ type: "phone", value: p }))]);
-    setSelectedContact(null);
-    setPurchases([]);
-    setLoading(false);
   }
 
-  async function fetchPurchases(contact) {
-    if (!contact) return;
-    setLoading(true);
-    const params = new URLSearchParams({
-      contactType: contact.type,
-      contactValue: contact.value,
-    });
-
-    const res = await fetch(`http://localhost:3000/purchases?${params.toString()}`);
-    const data = await res.json();
-    if (!res.ok) {
-      alert(data.error || "Failed to fetch purchases");
-      setLoading(false);
+  function addToCart(product) {
+    if (!identity) {
+      alert("Please identify yourself first.");
       return;
     }
-
-    setPurchases(data.purchases);
-    setSelectedContact(contact);
-    setLoading(false);
+    setCart((prev) => {
+      const existing = prev.find((item) => item.id === product.id);
+      if (existing) {
+        return prev.map((item) =>
+          item.id === product.id ? { ...item, qty: item.qty + 1 } : item
+        );
+      } else {
+        return [...prev, { ...product, qty: 1 }];
+      }
+    });
   }
+
+  function removeFromCart(productId) {
+    setCart((prev) =>
+      prev
+        .map((item) =>
+          item.id === productId ? { ...item, qty: item.qty - 1 } : item
+        )
+        .filter((item) => item.qty > 0)
+    );
+  }
+
+  async function checkout() {
+    if (!identity) return alert("Identify before checkout");
+    if (cart.length === 0) return alert("Cart is empty");
+
+    setLoading(true);
+    setError("");
+    try {
+      for (const item of cart) {
+        await fetch("http://localhost:3000/purchase", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contactType: "customer_id",
+            contactValue: identity.primaryContactId.toString(),
+            item: item.name,
+            amount: item.price * item.qty,
+          }),
+        });
+      }
+      alert("Checkout successful!");
+      setCart([]);
+    } catch (err) {
+      setError("Checkout failed: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const totalPrice = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6">Identity Reconciliation</h1>
+    <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col md:flex-row">
+      {/* Left - Product Area */}
+      <main className="flex-1 p-6">
+        <h1 className="text-3xl font-bold mb-4">FluxKart</h1>
 
-      {/* Identify form */}
-      <form onSubmit={handleIdentify} className="mb-6 flex gap-4">
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="border rounded px-3 py-2 flex-1"
-        />
-        <input
-          type="tel"
-          placeholder="Phone number"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          className="border rounded px-3 py-2 flex-1"
-        />
-        <button
-          type="submit"
-          className="bg-blue-600 text-white px-6 rounded hover:bg-blue-700"
-          disabled={loading || (!email && !phone)}
-        >
-          {loading ? "Loading..." : "Identify"}
-        </button>
-      </form>
-
-      {/* Identity info */}
-      {identity && (
-        <div className="mb-6 p-4 border rounded bg-gray-50">
-          <h2 className="text-xl font-semibold mb-2">Unified Identity</h2>
-          <p><strong>Primary Contact ID:</strong> {identity.primaryContactId}</p>
-          <p><strong>Emails:</strong> {identity.emails.join(", ") || "None"}</p>
-          <p><strong>Phone Numbers:</strong> {identity.phoneNumbers.join(", ") || "None"}</p>
-          <p><strong>Secondary Contact IDs:</strong> {identity.secondaryContactIds.join(", ") || "None"}</p>
+        {/* Identify Form */}
+        <div className="bg-white p-4 rounded shadow mb-6">
+          <h2 className="text-xl font-semibold mb-2">Identify Yourself</h2>
+          <div className="flex flex-col md:flex-row gap-4">
+            <input
+              className="border p-2 rounded w-full"
+              placeholder="Email (optional)"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <input
+              className="border p-2 rounded w-full"
+              placeholder="Phone Number (optional)"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+            />
+            <button
+              onClick={identifyUser}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
+              disabled={loading}
+            >
+              {loading ? "Identifying..." : "Identify"}
+            </button>
+          </div>
+          {identity && (
+            <div className="mt-3 text-sm text-green-700">
+              Identified as Customer ID: {identity.primaryContactId}
+            </div>
+          )}
+          {error && <p className="text-red-600 mt-2">{error}</p>}
         </div>
-      )}
 
-      {/* Contacts list */}
-      {contacts.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold mb-2">Contacts linked to this identity</h3>
-          <ul className="border rounded divide-y">
-            {contacts.map((contact, i) => (
-              <li
-                key={`${contact.type}-${contact.value}`}
-                className={`p-3 cursor-pointer hover:bg-gray-100 ${
-                  selectedContact?.value === contact.value ? "bg-blue-100" : ""
-                }`}
-                onClick={() => fetchPurchases(contact)}
+        {/* Products Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {products.map((product) => (
+            <div
+              key={product.id}
+              className="border rounded-lg p-4 bg-white shadow hover:shadow-lg transition"
+            >
+              <img
+                src={product.image}
+                alt={product.name}
+                className="w-full h-40 object-cover mb-4 rounded"
+              />
+              <h2 className="text-xl font-semibold">{product.name}</h2>
+              <p className="text-gray-700 mb-4">${product.price.toFixed(2)}</p>
+              <button
+                onClick={() => addToCart(product)}
+                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
               >
-                <span className="font-semibold">{contact.type.toUpperCase()}</span>: {contact.value}
+                Add to Cart
+              </button>
+            </div>
+          ))}
+        </div>
+      </main>
+
+      {/* Right - Cart Sidebar */}
+      <aside className="w-full md:w-80 bg-white border-l p-6">
+        <h2 className="text-2xl font-bold mb-4">Your Cart</h2>
+        {cart.length === 0 ? (
+          <p className="text-gray-500">Cart is empty.</p>
+        ) : (
+          <ul>
+            {cart.map((item) => (
+              <li
+                key={item.id}
+                className="flex justify-between items-center mb-3 border-b pb-2"
+              >
+                <div>
+                  <p className="font-semibold">{item.name}</p>
+                  <p className="text-sm text-gray-600">
+                    ${item.price.toFixed(2)} × {item.qty}
+                  </p>
+                </div>
+                <button
+                  onClick={() => removeFromCart(item.id)}
+                  className="text-red-600 hover:text-red-800 font-bold text-xl leading-none"
+                  aria-label={`Remove one ${item.name} from cart`}
+                >
+                  &times;
+                </button>
               </li>
             ))}
           </ul>
+        )}
+        <div className="mt-6 font-semibold text-lg">
+          Total: ${totalPrice.toFixed(2)}
         </div>
-      )}
-
-      {/* Purchases list */}
-      {selectedContact && (
-        <div>
-          <h3 className="text-lg font-semibold mb-2">Purchases for {selectedContact.value}</h3>
-          {purchases.length === 0 ? (
-            <p>No purchases found.</p>
-          ) : (
-            <ul className="border rounded divide-y">
-              {purchases.map((purchase, i) => (
-                <li key={i} className="p-3">
-                  <p><strong>{purchase.item}</strong></p>
-                  <p>Amount: ${purchase.amount.toFixed(2)}</p>
-                  <p>Date: {new Date(purchase.purchase_date).toLocaleDateString()}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+        <button
+          onClick={checkout}
+          className="mt-4 w-full bg-green-600 text-white py-2 rounded hover:bg-green-700 transition disabled:opacity-50"
+          disabled={cart.length === 0 || !identity || loading}
+        >
+          {loading ? "Processing..." : "Checkout"}
+        </button>
+      </aside>
     </div>
   );
 }
